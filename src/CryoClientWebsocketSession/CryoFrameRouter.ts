@@ -17,15 +17,6 @@ interface RouterHandlers {
 }
 
 export class CryoFrameRouter {
-    private plaintext_during_handshake: BinaryMessageType[] = [
-        BinaryMessageType.SERVER_HELLO,
-        BinaryMessageType.CLIENT_HELLO,
-        BinaryMessageType.HANDSHAKE_DONE,
-        BinaryMessageType.ACK,              //Optional
-        BinaryMessageType.PING_PONG,        //Optional
-        BinaryMessageType.ERROR
-    ];
-
     public constructor(
         private readonly formatter: typeof CryoFrameFormatter,
         private readonly is_secure: () => boolean,

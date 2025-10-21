@@ -1,6 +1,6 @@
 {
-  "name": "cryo-client",
-  "version": "2.3.3",
+  "name": "cryo-client-node",
+  "version": "1.0.0",
   "keywords": [],
   "license": "ISC",
   "description": "",
@@ -10,7 +10,7 @@
     "email": "info@fjanetzki.nrw"
   },
   "repository": {
-    "url": "git+https://github.com/Ranchonyx/Cryo-Client.git"
+    "url": "git+https://github.com/Ranchonyx/Cryo-Client-Node.git"
   },
   "exports": {
     ".": {
