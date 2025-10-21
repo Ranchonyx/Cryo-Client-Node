@@ -10,7 +10,4 @@ export class AckTracker {
         this.pending.delete(ack);
         return maybe_ack;
     }
-    Has(ack) {
-        return this.pending.has(ack);
-    }
 }

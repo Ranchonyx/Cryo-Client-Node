@@ -6,14 +6,6 @@ export class CryoFrameRouter {
     decrypt;
     handlers;
     log;
-    plaintext_during_handshake = [
-        BinaryMessageType.SERVER_HELLO,
-        BinaryMessageType.CLIENT_HELLO,
-        BinaryMessageType.HANDSHAKE_DONE,
-        BinaryMessageType.ACK, //Optional
-        BinaryMessageType.PING_PONG, //Optional
-        BinaryMessageType.ERROR
-    ];
     constructor(formatter, is_secure, decrypt, handlers, log = CreateDebugLogger("CRYO_FRAME_ROUTER")) {
         this.formatter = formatter;
         this.is_secure = is_secure;
