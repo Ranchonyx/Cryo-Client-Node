@@ -109,11 +109,11 @@ export class CryoClientWebsocketSession extends EventEmitter {
         socket.on("error", this.HandleError.bind(this));
         socket.on("close", this.HandleClose.bind(this));
     }
-    static async ConstructSocket(host, timeout, bearer, sid) {
+    static async ConstructSocket(host, timeout, bearer, sid, maxPayload = 256 * 1024 * 1024) {
         const full_host_url = new URL(host);
         full_host_url.searchParams.set("authorization", `Bearer ${bearer}`);
         full_host_url.searchParams.set("x-cryo-sid", sid);
-        const sck = new WebSocket(full_host_url);
+        const sck = new WebSocket(full_host_url, { maxPayload });
         return new Promise((resolve, reject) => {
             setTimeout(() => {
                 if (sck.readyState !== WebSocket.OPEN)
@@ -133,9 +133,9 @@ export class CryoClientWebsocketSession extends EventEmitter {
             });
         });
     }
-    static async Connect(host, bearer, use_cale = true, timeout = 5000) {
+    static async Connect(host, bearer, use_cale = true, timeout = 5000, maxPayload = 256 * 1024 * 1024) {
         const sid = randomUUID();
-        const socket = await CryoClientWebsocketSession.ConstructSocket(host, timeout, bearer, sid);
+        const socket = await CryoClientWebsocketSession.ConstructSocket(host, timeout, bearer, sid, maxPayload);
         return new CryoClientWebsocketSession(host, sid, socket, timeout, bearer, use_cale);
     }
     /*
