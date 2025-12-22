@@ -131,12 +131,12 @@ export class CryoClientWebsocketSession extends EventEmitter implements CryoClie
         socket.on("close", this.HandleClose.bind(this));
     }
 
-    private static async ConstructSocket(host: string, timeout: number, bearer: string, sid: string): Promise<WebSocket> {
+    private static async ConstructSocket(host: string, timeout: number, bearer: string, sid: string, maxPayload = 256 * 1024 * 1024): Promise<WebSocket> {
         const full_host_url = new URL(host);
         full_host_url.searchParams.set("authorization", `Bearer ${bearer}`);
         full_host_url.searchParams.set("x-cryo-sid", sid);
 
-        const sck = new WebSocket(full_host_url);
+        const sck = new WebSocket(full_host_url, {maxPayload});
 
         return new Promise<WebSocket>((resolve, reject) => {
             setTimeout(() => {
@@ -159,10 +159,10 @@ export class CryoClientWebsocketSession extends EventEmitter implements CryoClie
         })
     }
 
-    public static async Connect(host: string, bearer: string, use_cale: boolean = true, timeout: number = 5000): Promise<CryoClientWebsocketSession> {
+    public static async Connect(host: string, bearer: string, use_cale: boolean = true, timeout: number = 5000, maxPayload: number = 256 * 1024 * 1024): Promise<CryoClientWebsocketSession> {
         const sid = randomUUID();
 
-        const socket = await CryoClientWebsocketSession.ConstructSocket(host, timeout, bearer, sid);
+        const socket = await CryoClientWebsocketSession.ConstructSocket(host, timeout, bearer, sid, maxPayload);
         return new CryoClientWebsocketSession(host, sid, socket, timeout, bearer, use_cale);
     }
 
