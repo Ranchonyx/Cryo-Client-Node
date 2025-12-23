@@ -4,27 +4,54 @@ import CryoFrameFormatter, { BinaryMessageType } from "../Common/CryoBinaryMessa
 import { CryoFrameInspector } from "../Common/CryoFrameInspector/CryoFrameInspector.js";
 import { randomUUID } from "node:crypto";
 import { CreateDebugLogger } from "../Common/Util/CreateDebugLogger.js";
-import WebSocket from "ws";
 import { CryoCryptoBox } from "./CryoCryptoBox.js";
 import { CryoHandshakeEngine } from "./CryoHandshakeEngine.js";
 import { CryoFrameRouter } from "./CryoFrameRouter.js";
-var CloseCode;
-(function (CloseCode) {
-    CloseCode[CloseCode["CLOSE_GRACEFUL"] = 4000] = "CLOSE_GRACEFUL";
-    CloseCode[CloseCode["CLOSE_CLIENT_ERROR"] = 4001] = "CLOSE_CLIENT_ERROR";
-    CloseCode[CloseCode["CLOSE_SERVER_ERROR"] = 4002] = "CLOSE_SERVER_ERROR";
-    CloseCode[CloseCode["CLOSE_CALE_MISMATCH"] = 4010] = "CLOSE_CALE_MISMATCH";
-    CloseCode[CloseCode["CLOSE_CALE_HANDSHAKE"] = 4011] = "CLOSE_CALE_HANDSHAKE";
-})(CloseCode || (CloseCode = {}));
+import { CryoConnectionHelper } from "./CryoConnectionHelper.js";
+var CryoCloseCode;
+(function (CryoCloseCode) {
+    CryoCloseCode[CryoCloseCode["CLOSE_GRACEFUL"] = 4000] = "CLOSE_GRACEFUL";
+    CryoCloseCode[CryoCloseCode["CLOSE_CLIENT_ERROR"] = 4001] = "CLOSE_CLIENT_ERROR";
+    CryoCloseCode[CryoCloseCode["CLOSE_SERVER_ERROR"] = 4002] = "CLOSE_SERVER_ERROR";
+    CryoCloseCode[CryoCloseCode["CLOSE_CALE_MISMATCH"] = 4010] = "CLOSE_CALE_MISMATCH";
+    CryoCloseCode[CryoCloseCode["CLOSE_CALE_HANDSHAKE"] = 4011] = "CLOSE_CALE_HANDSHAKE";
+})(CryoCloseCode || (CryoCloseCode = {}));
+var WebsocketCloseCode;
+(function (WebsocketCloseCode) {
+    WebsocketCloseCode[WebsocketCloseCode["NORMAL"] = 1000] = "NORMAL";
+    WebsocketCloseCode[WebsocketCloseCode["GOING_AWAY"] = 1001] = "GOING_AWAY";
+    WebsocketCloseCode[WebsocketCloseCode["PROTOCOL_ERROR"] = 1002] = "PROTOCOL_ERROR";
+    WebsocketCloseCode[WebsocketCloseCode["UNSUPPORTED_DATA"] = 1003] = "UNSUPPORTED_DATA";
+    WebsocketCloseCode[WebsocketCloseCode["ABNORMAL_CLOSURE"] = 1006] = "ABNORMAL_CLOSURE";
+    WebsocketCloseCode[WebsocketCloseCode["INVALID_PAYLOAD"] = 1007] = "INVALID_PAYLOAD";
+    WebsocketCloseCode[WebsocketCloseCode["POLICY_VIOLATION"] = 1008] = "POLICY_VIOLATION";
+    WebsocketCloseCode[WebsocketCloseCode["MESSAGE_TOO_BIG"] = 1009] = "MESSAGE_TOO_BIG";
+    WebsocketCloseCode[WebsocketCloseCode["INTERNAL_ERROR"] = 1011] = "INTERNAL_ERROR";
+    WebsocketCloseCode[WebsocketCloseCode["SERVICE_RESTART"] = 1012] = "SERVICE_RESTART";
+    WebsocketCloseCode[WebsocketCloseCode["TRY_AGAIN_LATER"] = 1013] = "TRY_AGAIN_LATER";
+    WebsocketCloseCode[WebsocketCloseCode["TLS_HANDSHAKE_FAILED"] = 1015] = "TLS_HANDSHAKE_FAILED";
+})(WebsocketCloseCode || (WebsocketCloseCode = {}));
+const DoNotReconnect = [WebsocketCloseCode.NORMAL, WebsocketCloseCode.GOING_AWAY, CryoCloseCode.CLOSE_GRACEFUL];
+const DoReconnect = [WebsocketCloseCode.NORMAL, WebsocketCloseCode.GOING_AWAY, CryoCloseCode.CLOSE_GRACEFUL];
+const Fatal = [
+    WebsocketCloseCode.PROTOCOL_ERROR,
+    WebsocketCloseCode.UNSUPPORTED_DATA,
+    WebsocketCloseCode.ABNORMAL_CLOSURE,
+    WebsocketCloseCode.INVALID_PAYLOAD,
+    WebsocketCloseCode.POLICY_VIOLATION,
+    WebsocketCloseCode.MESSAGE_TOO_BIG,
+    WebsocketCloseCode.INTERNAL_ERROR,
+    WebsocketCloseCode.SERVICE_RESTART,
+    WebsocketCloseCode.TRY_AGAIN_LATER,
+    WebsocketCloseCode.TLS_HANDSHAKE_FAILED,
+];
 /*
 * Cryo Websocket session layer. Handles Binary formatting and ACKs and whatnot
 * */
 export class CryoClientWebsocketSession extends EventEmitter {
-    host;
-    sid;
     socket;
-    timeout;
-    bearer;
+    connectionHelper;
+    sid;
     use_cale;
     log;
     server_ack_tracker = new AckTracker();
@@ -37,13 +64,11 @@ export class CryoClientWebsocketSession extends EventEmitter {
     crypto = null;
     handshake = null;
     router;
-    constructor(host, sid, socket, timeout, bearer, use_cale = true, log = CreateDebugLogger("CRYO_CLIENT_SESSION")) {
+    constructor(socket, connectionHelper, sid, use_cale = true, log = CreateDebugLogger("CRYO_CLIENT_SESSION")) {
         super();
-        this.host = host;
-        this.sid = sid;
         this.socket = socket;
-        this.timeout = timeout;
-        this.bearer = bearer;
+        this.connectionHelper = connectionHelper;
+        this.sid = sid;
         this.use_cale = use_cale;
         this.log = log;
         if (use_cale) {
@@ -55,7 +80,7 @@ export class CryoClientWebsocketSession extends EventEmitter {
                 },
                 onFailure: (reason) => {
                     this.log(`Handshake failure: ${reason}`);
-                    this.Destroy(CloseCode.CLOSE_CALE_HANDSHAKE, "Failure during CALE handshake.");
+                    this.Destroy(CryoCloseCode.CLOSE_CALE_HANDSHAKE, "Failure during CALE handshake.");
                 }
             };
             this.handshake = new CryoHandshakeEngine(this.sid, async (buf) => this.socket.send(buf), // raw plaintext send
@@ -78,7 +103,7 @@ export class CryoClientWebsocketSession extends EventEmitter {
                 on_error: async (b) => this.HandleErrorMessage(b),
                 on_utf8: async (b) => this.HandleUTF8DataMessage(b),
                 on_binary: async (b) => this.HandleBinaryDataMessage(b),
-                on_server_hello: async (_b) => this.Destroy(CloseCode.CLOSE_CALE_MISMATCH, "CALE Mismatch. The server excepts CALE encryption, which is currently disabled.")
+                on_server_hello: async (_b) => this.Destroy(CryoCloseCode.CLOSE_CALE_MISMATCH, "CALE Mismatch. The server excepts CALE encryption, which is currently disabled.")
             });
             setImmediate(() => this.emit("connected"));
         }
@@ -109,34 +134,11 @@ export class CryoClientWebsocketSession extends EventEmitter {
         socket.on("error", this.HandleError.bind(this));
         socket.on("close", this.HandleClose.bind(this));
     }
-    static async ConstructSocket(host, timeout, bearer, sid, maxPayload = 256 * 1024 * 1024) {
-        const full_host_url = new URL(host);
-        full_host_url.searchParams.set("authorization", `Bearer ${bearer}`);
-        full_host_url.searchParams.set("x-cryo-sid", sid);
-        const sck = new WebSocket(full_host_url, { maxPayload });
-        return new Promise((resolve, reject) => {
-            setTimeout(() => {
-                if (sck.readyState !== WebSocket.OPEN)
-                    reject(new Error(`Connection timeout of ${timeout} ms reached!`));
-            }, timeout);
-            sck.addEventListener("open", () => {
-                sck.removeAllListeners("error");
-                resolve(sck);
-            });
-            sck.on("unexpected-response", (req, res) => {
-                let body = "";
-                res.on("data", (chunk) => body += chunk);
-                res.on("end", () => reject(new Error(`Error during websocket upgrade: HTTP ${res.statusCode}, '${body}'`)));
-            });
-            sck.addEventListener("error", (err) => {
-                reject(new Error(`Error during session initialisation!`, { cause: err }));
-            });
-        });
-    }
     static async Connect(host, bearer, use_cale = true, timeout = 5000, maxPayload = 256 * 1024 * 1024) {
         const sid = randomUUID();
-        const socket = await CryoClientWebsocketSession.ConstructSocket(host, timeout, bearer, sid, maxPayload);
-        return new CryoClientWebsocketSession(host, sid, socket, timeout, bearer, use_cale);
+        const connHelper = new CryoConnectionHelper(host, bearer, sid, timeout, maxPayload);
+        const socket = await connHelper.Acquire();
+        return new CryoClientWebsocketSession(socket, connHelper, sid, use_cale);
     }
     /*
     * Handle an outgoing binary message
@@ -222,19 +224,41 @@ export class CryoClientWebsocketSession extends EventEmitter {
     }
     async HandleError(err) {
         this.log(`${err.name} Exception in CryoSocket: ${err.message}`);
-        this.socket.close(CloseCode.CLOSE_SERVER_ERROR, `CryoSocket ${this.sid} was closed due to an error.`);
+        this.socket.close(CryoCloseCode.CLOSE_SERVER_ERROR, `CryoSocket ${this.sid} was closed due to an error.`);
     }
     TranslateCloseCode(code) {
         switch (code) {
-            case CloseCode.CLOSE_GRACEFUL:
+            case WebsocketCloseCode.NORMAL:
+            case WebsocketCloseCode.GOING_AWAY:
+            case CryoCloseCode.CLOSE_GRACEFUL:
                 return "Connection closed normally.";
-            case CloseCode.CLOSE_CLIENT_ERROR:
+            case WebsocketCloseCode.ABNORMAL_CLOSURE:
+                return "Connection closed abnormally (no close frame received).";
+            case WebsocketCloseCode.INTERNAL_ERROR:
+                return "Connection closed due to an internal server error.";
+            case WebsocketCloseCode.SERVICE_RESTART:
+                return "Connection closed because the service is restarting.";
+            case WebsocketCloseCode.TRY_AGAIN_LATER:
+                return "Connection closed temporarily; retry later.";
+            case WebsocketCloseCode.PROTOCOL_ERROR:
+                return "Connection closed due to a WebSocket protocol error.";
+            case WebsocketCloseCode.UNSUPPORTED_DATA:
+                return "Connection closed due to unsupported data being received.";
+            case WebsocketCloseCode.INVALID_PAYLOAD:
+                return "Connection closed due to invalid message payload data.";
+            case WebsocketCloseCode.POLICY_VIOLATION:
+                return "Connection closed due to a policy violation.";
+            case WebsocketCloseCode.MESSAGE_TOO_BIG:
+                return "Connection closed because a message was too large.";
+            case WebsocketCloseCode.TLS_HANDSHAKE_FAILED:
+                return "Connection closed due to TLS handshake failure.";
+            case CryoCloseCode.CLOSE_CLIENT_ERROR:
                 return "Connection closed due to a client error.";
-            case CloseCode.CLOSE_SERVER_ERROR:
+            case CryoCloseCode.CLOSE_SERVER_ERROR:
                 return "Connection closed due to a server error.";
-            case CloseCode.CLOSE_CALE_MISMATCH:
+            case CryoCloseCode.CLOSE_CALE_MISMATCH:
                 return "Connection closed due to a mismatch in client/server CALE configuration.";
-            case CloseCode.CLOSE_CALE_HANDSHAKE:
+            case CryoCloseCode.CLOSE_CALE_HANDSHAKE:
                 return "Connection closed due to an error in the CALE handshake.";
             default:
                 return "Unspecified cause for connection closure.";
@@ -242,34 +266,13 @@ export class CryoClientWebsocketSession extends EventEmitter {
     }
     async HandleClose(code, reason) {
         this.log(`Websocket was closed. Code=${code} (${this.TranslateCloseCode(code)}), reason=${reason.toString("utf8")}.`);
-        if (code !== CloseCode.CLOSE_GRACEFUL) {
-            let current_attempt = 0;
-            let back_off_delay = 5000;
-            //If the connection was not normally closed, try to reconnect
-            this.log(`Abnormal termination of Websocket connection, attempting to reconnect...`);
-            ///@ts-expect-error
+        //Attempt to reconnect
+        if (DoReconnect.includes(code)) {
             this.socket = null;
-            this.emit("disconnected");
-            while (current_attempt < 5) {
-                try {
-                    this.socket = await CryoClientWebsocketSession.ConstructSocket(this.host, this.timeout, this.bearer, this.sid);
-                    this.AttachListenersToSocket(this.socket);
-                    this.emit("reconnected");
-                    return;
-                }
-                catch (ex) {
-                    if (ex instanceof Error) {
-                        ///@ts-expect-error
-                        const errorCode = ex.cause?.error?.code;
-                        console.warn(`Unable to reconnect to '${this.host}'. Error code: '${errorCode}'. Retry attempt in ${back_off_delay} ms. Attempt ${current_attempt++} / 5`);
-                        await new Promise((resolve) => setTimeout(resolve, back_off_delay));
-                        back_off_delay += current_attempt * 1000;
-                    }
-                }
-            }
-            console.warn(`Gave up on reconnecting to '${this.host}'`);
-            return;
+            this.socket = await this.connectionHelper.Acquire();
+            this.AttachListenersToSocket(this.socket);
         }
+        //Otherwise die
         if (this.socket)
             this.socket.terminate();
         this.emit("closed", code, reason.toString("utf8"));
@@ -295,7 +298,7 @@ export class CryoClientWebsocketSession extends EventEmitter {
         this.HandleOutgoingBinaryMessage(formatted_message);
     }
     Close() {
-        this.Destroy(CloseCode.CLOSE_GRACEFUL, "Client finished.");
+        this.Destroy(CryoCloseCode.CLOSE_GRACEFUL, "Client finished.");
     }
     get secure() {
         return this.use_cale && this.crypto !== null;

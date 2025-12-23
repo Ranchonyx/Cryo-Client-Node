@@ -5,7 +5,8 @@ import { CryoClientWebsocketSession } from "./CryoClientWebsocketSession/CryoCli
  * @param bearer - The bearer token to authenticate with at the server
  * @param use_cale - If cALE (application layer encryption) should be enabled
  * @param timeout - How long to wait until disconnecting
+ * @param maxPayloadReceived - The maximum size of receivable payloads in bytes
  * */
-export async function cryo(host, bearer, use_cale = true, timeout = 5000) {
-    return CryoClientWebsocketSession.Connect(host, bearer, use_cale, timeout);
+export async function cryo(host, bearer, use_cale = true, timeout = 5000, maxPayloadReceived = 256 * 1024 * 1024) {
+    return CryoClientWebsocketSession.Connect(host, bearer, use_cale, timeout, maxPayloadReceived);
 }

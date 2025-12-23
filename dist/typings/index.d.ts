@@ -24,10 +24,12 @@ export declare class CryoClientWebsocketSession extends EventEmitter implements 
 }
 
 /**
- * Create a Cryo client
- * @param host - The server to connect to
- * @param bearer - The Bearer token for the server to validate
+ * Create a Cryo server and attach it to an Express.js app
+ * @param host - The host to connect to
+ * @param bearer - The bearer token to authenticate with at the server
+ * @param additionalQueryParamsMap - A record of additional parameters to be appended to the query string in the Upgrade request
  * @param use_cale - If cALE (application layer encryption) should be enabled
- * @param timeout - How long to wait until the client stops establishing a connection
- * */
-export declare function cryo(host: string, bearer: string, use_cale?: boolean, timeout?: number, maxPayloadReceived?: number): Promise<CryoClientWebsocketSession>;
+ * @param timeout - How long to wait until disconnecting
+ * @param maxPayloadReceived - The maximum size of receivable payloads in bytes
+ **/
+async function cryo(host: string, bearer: string, additionalQueryParamsMap: Record<string, string>, use_cale: boolean = false, timeout: number = 5000, maxPayloadReceived = 256 * 1024 * 1024): Promise<CryoClientWebsocketSession>;
